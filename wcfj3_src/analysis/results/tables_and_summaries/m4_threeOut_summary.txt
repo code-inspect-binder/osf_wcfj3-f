@@ -1,0 +1,24 @@
+
+Family: gaussian 
+Link function: identity 
+
+Formula:
+score ~ te(Time, initLevel) + te(Time, initLevel, by = isACTV) + 
+    te(Time, initLevel, by = isPASV) + s(Time, userCode, bs = "fs", 
+    m = 1)
+
+Parametric coefficients:
+            Estimate Std. Error t value Pr(>|t|)
+(Intercept)  0.04309    0.04830   0.892    0.372
+
+Approximate significance of smooth terms:
+                             edf  Ref.df      F  p-value    
+te(Time,initLevel)        16.179  18.690 78.355  < 2e-16 ***
+te(Time,initLevel):isACTV  9.424   9.864  3.787 2.65e-05 ***
+te(Time,initLevel):isPASV  6.917   7.912  1.996   0.0399 *  
+s(Time,userCode)          85.599 547.000  1.029  < 2e-16 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+R-sq.(adj) =  0.587   Deviance explained = 59.2%
+fREML = 7561.5  Scale est. = 0.39117   n = 8678

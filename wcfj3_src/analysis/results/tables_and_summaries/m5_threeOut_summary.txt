@@ -1,0 +1,41 @@
+
+Family: gaussian 
+Link function: identity 
+
+Formula:
+score ~ te(Time, initLevel, by = Tasks) + te(Time, initLevel, 
+    by = isACTVissWM) + te(Time, initLevel, by = isACTVisrtWM) + 
+    te(Time, initLevel, by = isACTVisrtDivAtt) + te(Time, initLevel, 
+    by = isACTVisrtAlert) + te(Time, initLevel, by = isACTVissRWT) + 
+    te(Time, initLevel, by = isPASVissWM) + te(Time, initLevel, 
+    by = isPASVisrtWM) + te(Time, initLevel, by = isPASVisrtDivAtt) + 
+    te(Time, initLevel, by = isPASVisrtAlert) + te(Time, initLevel, 
+    by = isPASVissRWT) + s(Time, userCode, bs = "fs", m = 1)
+
+Parametric coefficients:
+            Estimate Std. Error t value Pr(>|t|)
+(Intercept)  0.02129    0.05147   0.414    0.679
+
+Approximate significance of smooth terms:
+                                       edf  Ref.df      F  p-value    
+te(Time,initLevel):TaskssWM         14.032  16.999 19.368  < 2e-16 ***
+te(Time,initLevel):TasksrtWM         5.410   6.359 61.125  < 2e-16 ***
+te(Time,initLevel):TasksrtDivAtt    10.851  13.293 45.408  < 2e-16 ***
+te(Time,initLevel):TasksrtAlert     11.639  13.477 38.071  < 2e-16 ***
+te(Time,initLevel):TaskssRWT         7.779  10.118 39.590  < 2e-16 ***
+te(Time,initLevel):isACTVissWM       4.000   4.001  2.924 0.019795 *  
+te(Time,initLevel):isACTVisrtWM      9.003   9.633  4.638 4.39e-07 ***
+te(Time,initLevel):isACTVisrtDivAtt  4.000   4.000  0.380 0.823103    
+te(Time,initLevel):isACTVisrtAlert   6.990   7.845  2.468 0.012255 *  
+te(Time,initLevel):isACTVissRWT      7.996   8.922  1.611 0.113826    
+te(Time,initLevel):isPASVissWM       6.009   6.702  3.413 0.001668 ** 
+te(Time,initLevel):isPASVisrtWM      9.324   9.832  4.463 1.00e-06 ***
+te(Time,initLevel):isPASVisrtDivAtt  8.117   9.026  1.985 0.033403 *  
+te(Time,initLevel):isPASVisrtAlert   7.959   9.186  2.253 0.014037 *  
+te(Time,initLevel):isPASVissRWT      8.009   8.879  3.341 0.000477 ***
+s(Time,userCode)                    96.699 546.000  1.329  < 2e-16 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+R-sq.(adj) =   0.63   Deviance explained = 63.9%
+fREML = 7431.8  Scale est. = 0.35075   n = 8678

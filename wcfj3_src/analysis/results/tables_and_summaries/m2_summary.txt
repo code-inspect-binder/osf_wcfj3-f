@@ -1,0 +1,27 @@
+
+Family: gaussian 
+Link function: identity 
+
+Formula:
+score ~ isACTV0 + isPASV0 + s(Time) + s(Time, by = isACTV0) + 
+    s(Time, by = isPASV0) + s(Time, userCode, bs = "fs", m = 1)
+
+Parametric coefficients:
+            Estimate Std. Error t value Pr(>|t|)  
+(Intercept)  0.11757    0.09728   1.209   0.2269  
+isACTV01    -0.16072    0.15816  -1.016   0.3096  
+isPASV01    -0.35316    0.16131  -2.189   0.0286 *
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Approximate significance of smooth terms:
+                    edf  Ref.df      F p-value    
+s(Time)           3.594   4.585 17.192  <2e-16 ***
+s(Time):isACTV01  1.000   1.000  0.014   0.907    
+s(Time):isPASV01  1.357   1.632  0.209   0.679    
+s(Time,userCode) 53.967 547.000  1.413  <2e-16 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+R-sq.(adj) =  0.302   Deviance explained = 30.6%
+fREML = 8357.9  Scale est. = 0.64752   n = 8732

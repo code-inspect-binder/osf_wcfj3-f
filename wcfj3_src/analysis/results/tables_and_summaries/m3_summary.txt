@@ -1,0 +1,58 @@
+
+Family: gaussian 
+Link function: identity 
+
+Formula:
+score ~ s(Time, by = Tasks) + Tasks + s(Time, by = isACTVissWM0) + 
+    isACTVissWM0 + s(Time, by = isACTVisrtWM0) + isACTVisrtWM0 + 
+    s(Time, by = isACTVisrtDivAtt0) + isACTVisrtDivAtt0 + s(Time, 
+    by = isACTVisrtAlert0) + isACTVisrtAlert0 + s(Time, by = isACTVissRWT0) + 
+    isACTVissRWT0 + s(Time, by = isPASVissWM0) + isPASVissWM0 + 
+    s(Time, by = isPASVisrtWM0) + isPASVisrtWM0 + s(Time, by = isPASVisrtDivAtt0) + 
+    isPASVisrtDivAtt0 + s(Time, by = isPASVisrtAlert0) + isPASVisrtAlert0 + 
+    s(Time, by = isPASVissRWT0) + isPASVissRWT0 + s(Time, userCode, 
+    bs = "fs", m = 1)
+
+Parametric coefficients:
+                    Estimate Std. Error t value Pr(>|t|)   
+(Intercept)         0.179656   0.109587   1.639  0.10117   
+TasksrtWM           0.004251   0.079845   0.053  0.95754   
+TasksrtDivAtt      -0.126477   0.079953  -1.582  0.11371   
+TasksrtAlert       -0.114533   0.079623  -1.438  0.15035   
+TaskssRWT          -0.090288   0.079843  -1.131  0.25816   
+isACTVissWM01      -0.225489   0.178000  -1.267  0.20526   
+isACTVisrtWM01     -0.430346   0.178033  -2.417  0.01566 * 
+isACTVisrtDivAtt01  0.065242   0.178001   0.367  0.71398   
+isACTVisrtAlert01  -0.081396   0.178115  -0.457  0.64769   
+isACTVissRWT01     -0.119142   0.177982  -0.669  0.50326   
+isPASVissWM01      -0.544538   0.181571  -2.999  0.00272 **
+isPASVisrtWM01     -0.291410   0.181616  -1.605  0.10863   
+isPASVisrtDivAtt01 -0.393329   0.181495  -2.167  0.03025 * 
+isPASVisrtAlert01  -0.226900   0.181731  -1.249  0.21186   
+isPASVissRWT01     -0.288972   0.181804  -1.589  0.11199   
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Approximate significance of smooth terms:
+                              edf  Ref.df      F  p-value    
+s(Time):TaskssWM            3.182   4.062 12.076  < 2e-16 ***
+s(Time):TasksrtWM           1.001   1.001  6.446 0.011100 *  
+s(Time):TasksrtDivAtt       2.418   3.078  6.751 0.000137 ***
+s(Time):TasksrtAlert        1.001   1.002  0.600 0.438244    
+s(Time):TaskssRWT           2.029   2.570  6.216 0.001130 ** 
+s(Time):isACTVissWM01       1.000   1.000  0.122 0.726602    
+s(Time):isACTVisrtWM01      1.000   1.000  0.014 0.905549    
+s(Time):isACTVisrtDivAtt01  1.000   1.000  0.018 0.892740    
+s(Time):isACTVisrtAlert01   1.821   2.302  0.763 0.469820    
+s(Time):isACTVissRWT01      1.000   1.000  0.082 0.774090    
+s(Time):isPASVissWM01       1.000   1.000  1.154 0.282768    
+s(Time):isPASVisrtWM01      1.000   1.000  0.001 0.973245    
+s(Time):isPASVisrtDivAtt01  1.000   1.000  0.137 0.711491    
+s(Time):isPASVisrtAlert01   2.107   2.679  1.151 0.340404    
+s(Time):isPASVissRWT01      1.685   2.109  0.560 0.571820    
+s(Time,userCode)           54.105 546.000  1.469  < 2e-16 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+R-sq.(adj) =  0.315   Deviance explained = 32.2%
+fREML = 8375.6  Scale est. = 0.63688   n = 8732

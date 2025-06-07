@@ -1,0 +1,1203 @@
+---
+title: "COGNITIVE BENEFITS OF LEARNING ADDITIONAL LANGUAGES IN OLD ADULTHOOD? INSIGHTS FROM AN INTENSIVE LONGITUDINAL INTERVENTION STUDY"
+author: "Anonymized"
+date: "11/03/2021"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: false
+    code_folding: hide
+---
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load libraries
+library(dplyr)
+library(itsadug)
+library(mgcv)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(kableExtra)
+library(reshape2)
+library(plotly)
+library(ggsignif)
+library(ggpubr)
+library(xtable)
+library(Hmisc)
+library(ggbeeswarm)
+library(car)
+
+# Load functions
+source("../src/funs.R")
+
+### Set environment
+inputFolder = paste('..', "data", sep = "/")
+outputFolder = paste('..', "results", sep = "/")
+
+# Load data
+load(file = paste(inputFolder, "df_withIntercepts.rda", sep = "/"))
+load(file = paste(inputFolder, "dfOverall_withIntercepts.rda", sep = "/"))
+
+```
+
+This report summarises the analysis and results for the publication "Cognitive benefits of learning additional languages in old adulthood? Insights from an intensive longitudinal intervention study".
+
+## The dataset
+
+**63 participants** completed the training, **two of whom were excluded**, because they suffered a minor stroke halfway through the 30 weeks and did therefore no longer qualify as neurologically healthy.
+
+The dataset therefore includes **61 trajectories** of cognitive performance over a period of **30 weeks**, assessed on a weekly basis.
+
+See Anonymized (2021) for a detailed description of the cognitive tasks and socio-affective questionnaires.
+
+The tests include:
+
+* Alertness task
+  * Extracted measure: Reaction time (RT)
+  * Accuracy almost 100%, hence not used.
+* Divided attention task
+  * Extracted measures: Accuracy (i.e. sensitivity) & RT.
+* Verbal fluency task ("Regensburger Wortflüssigkeitstest")
+  * Number of words produced in 1 minute
+* Complex working memory task (Operation Span)
+  * Extracted measure: Accuracy 
+  * RT not extracted, because letters had to be entered, so it depends largely on computer literacy
+* Simple working memory task (2-Back)
+  * Extracted measures: Accuracy (= sensitivity) & RT
+
+## Exploratory Analyses
+
+### ID-Differences between Groups
+In order to avoid between-group effects based on a selection bias, groups were compared in terms of age, number of years in education, multilingualism and number of regular activities/hobbies:
+
+`# See idDiffs.R for code.`
+
+
+```{r, fig.width=7, fig.height=3}
+load(file = paste(inputFolder, "id_dfLong.rda", sep = "/"))
+
+# remove standardized variables
+id_dfLong2 = id_dfLong %>%
+  filter(Measure %in% c("ageZ", "educ_yZ", "BLPZ", "Act_totalZ") )
+
+id_dfLong2 = droplevels(id_dfLong2)
+
+levels(id_dfLong2$Measure) <- c("Age", "Education", "Multilingualism", "Number of Hobbies")
+id_dfLong2$Group = relevel(id_dfLong2$Group, ref = "ACTV")
+id_dfLong2$Group = relevel(id_dfLong2$Group, ref = "PASV")
+
+id_dfLong2 %>%
+  ggplot(aes(x = Group, y = Value, fill = Group)) +
+  geom_boxplot() +
+  facet_grid(~ Measure, scales = "free") +
+  theme_bw() +
+  ylab("Z-Score") +
+  xlab("")+
+  scale_fill_brewer(palette = "Paired", limits = levels(id_dfLong2$Group)) 
+
+```
+
+```{r}
+# Chi-square test for gender distribution
+gend = data.frame(LANG = c(14,14), ACTV = c(7,10), PASV = c(5,11))
+row.names(gend) = c("f", "m")
+
+chi = chisq.test(gend)
+
+```
+
+See `5_publPlots.R` for descriptive statistics table.
+
+<br>
+
+**Result**:
+
+* Groups were comparable in their ID variables.
+* The three training groups did not differ with respect to the ratio of male to female participants *&chi;<sup>2</sup>*(`r round(chi$parameter[1],2)`) = `r round(chi$statistic[1],2)`, *p* = `r round(chi$p.value,2)`.
+
+
+
+<br><br>
+
+### Variable Reduction
+
+Let's see if the number of variables can be reduced based on correlations. We will also include the predictors "Wellbeing" and "Training Motivation", as they are likely to correlate.
+
+```{r, echo = T, fig.align="center"}
+
+# correlation matrix between cognitive variables
+originalDat = read.csv(paste(inputFolder, "selectedData.csv", sep = "/"))
+
+thisDat = originalDat %>%
+  select(sNBack, sOpSpan, sRWT, rtNBack, rtDivAtt, rtAlert, Wellbeing, TrainingMotivation) %>%
+  mutate(rtNBack = log(rtNBack), # logarithmize all RTs
+         rtAlert = log(rtAlert),
+         rtDivAtt = log(rtDivAtt)
+)
+
+# make correlation matrix
+m = cor(thisDat, method = "spearman", use = "pairwise") # spearman because non-normal distribution
+
+# plot
+plot_ly(x = names(thisDat), y = names(thisDat), z = m, type = "heatmap")
+```
+
+**Result**:
+
+The strongest correlations are between:
+
+* Wellbeing + Training Motivation: *r* = `r round(m["Wellbeing", "TrainingMotivation"],2)`
+* N-Back Accuracy + Operation Span Accuracy: *r* = `r round(m["sNBack", "sOpSpan"],2)`
+
+It makes sense from a theoretical point of view to concatenate Wellbeing & Training Motivation and N-Back Accuracy & Operation Span Accuracy. The resulting variables are`socioAffect` and `sWM` (Working Memory Accuracy), respectively.
+
+<br><br>
+
+### Distribution of Cognitive and Socio-Affective Variables
+
+```{r, fig.width = 10, fig.height = 10, warning=F, out.width = "90%"}
+# Make new df in long format with cognitive and socio-affective variables
+thisDat = df %>%
+  select(userCode, Group, rtAlert, sDivAtt, rtDivAtt, sWM, rtWM, sRWT, socioAffect) %>%
+  tidyr::pivot_longer(rtAlert:socioAffect,
+                      names_to = "Variable",
+                      values_to = "Score") %>%
+  group_by(Variable) %>%
+  mutate(outlier.high = Score > quantile(Score, .75, na.rm = TRUE) + 1.5*IQR(Score, na.rm = TRUE),
+         outlier.low = Score < quantile(Score, .25, na.rm = TRUE) - 1.5*IQR(Score, na.rm = TRUE)) %>%
+  ungroup()
+
+thisDat$outlier.color <- NA
+thisDat$outlier.color[thisDat$outlier.high] <- "red"
+thisDat$outlier.color[thisDat$outlier.low] <- "steelblue"
+
+# Make Variable a factor
+thisDat$Variable = as.factor(thisDat$Variable)
+
+# Relevel Group for coloring
+thisDat$Group = relevel(thisDat$Group, ref = "ACTV")
+thisDat$Group = relevel(thisDat$Group, ref = "PASV")
+
+# Rename factor levels
+levels(thisDat$Variable) = c("Alertness RT [log]", "Divided Attention RT [log]", "Working Memory RT [log]",
+                             "Divided Attention Acc.", "Socio-Affect", "Verbal Fluency", "Working Memory Acc.")
+
+# Draw plot
+plotList = list()
+
+for (i in 1:length(unique(thisDat$Variable))) {
+  plotList[[i]] = thisDat %>%
+    filter(Variable == unique(thisDat$Variable)[i]) %>%
+    ggplot(aes(x = Group, y = Score)) +
+    geom_violin(aes(group = Group, fill = Group),
+                trim = FALSE) +  
+    geom_boxplot(aes(group = Group), width = 0.15, outlier.shape = NA) +
+    geom_point(aes(color = outlier.color), data = function(x) dplyr::filter_(x, ~ outlier.high | outlier.low), position = position_jitter(w = 0.1, h = 0.05), alpha = 0.5) +
+    stat_summary(mapping = aes(group = Group, fill = Group), fun = mean, geom = "point", shape = 23, size = 2.5) +
+    scale_fill_brewer(palette = "Paired") + #Alternatives: "Dark2", "RdBu"
+    scale_x_discrete() +
+    theme_bw() +
+    theme(legend.position = "none") +
+    ylab("Score") +
+    ggtitle(unique(thisDat$Variable)[i]) +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold")) + 
+    xlab("")
+}
+
+ggarrange(plotList[[1]], plotList[[2]], plotList[[3]], plotList[[4]], plotList[[5]], plotList[[6]], plotList[[7]],
+          nrow = 3, ncol = 3)
+
+```
+
+<br>
+
+```{r, fig.align = "center", message = F}
+N_vect = thisDat %>%
+  group_by(Group, Variable) %>%
+  filter(is.na(Score) == F) %>%
+  count()
+
+sumDF = thisDat %>%
+  group_by(Variable, Group) %>%
+  summarise(N = 0,
+            Mean = mean(Score, na.rm = T),
+            Median = median(Score, na.rm = T),
+            "Std. Dev" = sd(Score, na.rm = T),
+            Min = min(Score, na.rm = T),
+            Max = max(Score, na.rm = T)) 
+
+sumDF = full_join(sumDF, N_vect, by = c("Variable", "Group"))
+
+sumDF = sumDF %>%
+  dplyr::select(Variable, Group, N = n, Mean, Median, "Std. Dev", Min, Max)
+
+sumDF %>%
+  kable(digits = 2, format = "html", booktabs = T,
+      caption = "Descriptive Summary of Repeated Measures") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+<br>
+**Result**:
+
+* There is a clear ceiling effect in the case of Divided Attention Accuracy. The score will be removed from further analysis.
+* The distribution of socio-affect is skewed to the left, i.e. participants were highly motivated.
+* Note: Reaction times are already log-transformed.
+
+
+<br><br><br>
+
+### Initial Conditions
+
+To quantify initial conditions, the very first time point was removed as familiarization trial (in which participants also received feedback from the investigators). Results did not change noticeably when this time point was included. A GAM was computed for each subject and task, and the score at Time = 0 was retrieved from each of these GAMs. The mean over all five initial scores was defined as the individual's initial conditions.
+
+Ideally, groups should perform similarly on the cognitive tasks at the start of their respective trainings. Whether this is the case, will be tested here.
+
+The following are boxplots for the overall GAMM intercepts and intercepts extracted for each task individually indicating significant differences in intercept between groups.
+
+
+```{r, echo = T, fig.width = 5,out.width = '70%', fig.align='center', fig.asp = 0.7, warning = F}
+load(file = paste(inputFolder, "id_df.rda", sep = "/"))
+
+thisDat = id_df %>%
+  group_by(Group) %>%
+  mutate(outlier.high = initLevel > quantile(initLevel, .75, na.rm = TRUE) + 1.5*IQR(initLevel, na.rm = TRUE),
+         outlier.low = initLevel < quantile(initLevel, .25, na.rm = TRUE) - 1.5*IQR(initLevel, na.rm = TRUE)) %>%
+  ungroup()
+
+thisDat$outlier.color <- NA
+thisDat$outlier.color[thisDat$outlier.high] <- "red"
+thisDat$outlier.color[thisDat$outlier.low] <- "steelblue"
+
+# Relevel Group for coloring
+thisDat$Group = relevel(thisDat$Group, ref = "ACTV")
+thisDat$Group = relevel(thisDat$Group, ref = "PASV")
+
+thisDat %>%
+  ggplot(aes(x = Group, y = initLevel)) +
+  geom_violin(aes(group = Group, fill = Group),
+              trim = F) +
+  geom_boxplot(aes(group = Group), width = 0.15, outlier.shape = NA) +
+  geom_point(aes(color = outlier.color), data = function(x) dplyr::filter_(x, ~ outlier.high | outlier.low), position = position_jitter(w = 0.1, h = 0.05), alpha = 0.5) +
+  stat_summary(mapping = aes(group = Group, fill = Group), fun = mean, geom = "point", shape = 23, size = 2.5) +
+  scale_fill_brewer(palette = "Paired") + #Alternatives: "Dark2", "RdBu"
+  scale_x_discrete() +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold")) +
+  theme_bw() +
+  xlab("") +
+  ylab("Baseline") +
+  ggtitle("Overall Cognitive Baselines")
+
+
+```
+
+<br><br>
+
+### Predictors of Initial Conditions
+
+`r #See idDiffs.R for code.`
+
+```{r, fig.width = 8, fig.asp = 0.3, message = F}
+load(file = paste(inputFolder, "id_df.rda", sep = "/"))
+
+corrDF = melt(id_df, id.vars = c("userCode", "initLevel"),
+              measure.vars = c("age", "educ_y",  "BLP", "Act_total", "socioAffect_init"),
+              variable.name = "Measure",
+              value.name = "Value")
+
+levels(corrDF$Measure) = c("Age", "Education", "Multilingualism", "Number of Hobbies", "Initial Motivation")
+
+# Make a dot and a line color column depending on the significance level
+# Check significance level and - if significant - add respective color to new column
+
+ageR = data.frame(dotCol = rep(ifelse(summary(lm(initLevel ~ age, data = id_df))$coefficients[2,4]< 0.05,
+                                     "khaki3", "lightgrey"), 
+                     length(unique(id_df$userCode))),
+                 lineCol = rep(ifelse(summary(lm(initLevel ~ age, data = id_df))$coefficients[2,4]< 0.05,
+                                      "cyan4", "darkgrey"), 
+                               length(unique(id_df$userCode))))
+educR = data.frame(dotCol = rep(ifelse(summary(lm(initLevel ~ educ_y, data = id_df))$coefficients[2,4]< 0.05,
+                                      "khaki3", "lightgrey"), 
+                               length(unique(id_df$userCode))),
+                  lineCol = rep(ifelse(summary(lm(initLevel ~ educ_y, data = id_df))$coefficients[2,4]< 0.05,
+                                       "cyan4", "darkgrey"), 
+                                length(unique(id_df$userCode))))
+blpR = data.frame(dotCol = rep(ifelse(summary(lm(initLevel ~ BLP, data = id_df))$coefficients[2,4]< 0.05,
+                                      "khaki3", "lightgrey"), 
+                               length(unique(id_df$userCode))),
+                  lineCol = rep(ifelse(summary(lm(initLevel ~ BLP, data = id_df))$coefficients[2,4]< 0.05,
+                                       "cyan4", "darkgrey"), 
+                                length(unique(id_df$userCode))))
+actR = data.frame(dotCol = rep(ifelse(summary(lm(initLevel ~ Act_total, data = id_df))$coefficients[2,4]< 0.05,
+                                      "khaki3", "lightgrey"), 
+                               length(unique(id_df$userCode))),
+                  lineCol = rep(ifelse(summary(lm(initLevel ~ Act_total, data = id_df))$coefficients[2,4]< 0.05,
+                                       "cyan4", "darkgrey"), 
+                                length(unique(id_df$userCode))))
+motivR = data.frame(dotCol = rep(ifelse(summary(lm(initLevel ~ socioAffect_init, data = id_df))$coefficients[2,4]< 0.05,
+                                      "khaki3", "lightgrey"), 
+                               length(unique(id_df$userCode))),
+                  lineCol = rep(ifelse(summary(lm(initLevel ~ socioAffect_init, data = id_df))$coefficients[2,4]< 0.05,
+                                       "cyan4", "darkgrey"), 
+                                length(unique(id_df$userCode))))
+
+tmp = rbind.data.frame(ageR, educR, blpR, actR, motivR)
+corrDF = cbind(corrDF, tmp)
+
+# clean up
+remove(ageR, educR, motivR, actR, blpR, tmp)
+
+# Plot
+
+corrDF %>%
+  ggplot(aes(x = Value, y = initLevel)) +
+  geom_point(aes(color = dotCol)) +
+  geom_smooth(method = "lm", alpha = 0.2, aes(color = lineCol)) +
+  facet_grid(~ Measure, scales = "free") +
+  theme_bw() + 
+  ylab("Cognitive Baseline") +
+  xlab("") +
+  #stat_cor(method = "pearson", 
+  #         label.x = 0.25, label.y = 0.9, label.sep = "\n")  +
+  scale_color_manual(values = c("cyan4", "darkgrey", "khaki3", "lightgrey")) +
+  guides(color = F)
+
+
+```
+
+Even though there was no significant difference in ID variables between groups, education (*r* = `r round(summary(lm(scale(initLevel) ~ scale(educ_y), data = id_df))$coefficients[2,1],2)`, *p* = `r round(summary(lm(scale(initLevel) ~ scale(educ_y), data = id_df))$coefficients[2,4],2)`) and multilingualism (*r* = `r round(summary(lm(scale(initLevel) ~ scale(BLP), data = id_df))$coefficients[2,1],2)`, *p* = `r round(summary(lm(scale(initLevel) ~ scale(BLP), data = id_df))$coefficients[2,4],2)`) predicted the initial cognitive performance and likely caused the group differences.
+
+The correlation between multilingualism and education was negligible (*r* = `r round(summary(lm(scale(BLP) ~ scale(educ_y), data = id_df))$coefficients[2,1],2)`, *p* = `r round(summary(lm(scale(BLP) ~ scale(educ_y), data = id_df))$coefficients[2,4],2)`)
+
+<br><br>
+
+### Differences in Socio-Affect
+To ensure that socio-affect was comparable between groups, a GAMM was computed with socio-affect as the dependent variable and individual smooths for each group (as ordered factors). Due to the approaching ceiling effect, the model's residuals were not distributed normally even after using the scaled-t family:
+
+<br>
+
+```{r, fig.width=6, fig.height=5, out.width="60%", fig.align = "center", message = F}
+load(paste(outputFolder, "tables_and_summaries", "socioAffect_OFgamm.rda", sep = "/")) # Model is run in idDiffs.R
+# model is called "m1a"
+
+qqp(resid(m1a), main = "Model Residuals Socio-Affect GAMM", ylab = "Residuals", id = F)
+```
+
+<br>
+
+The mean socio-affect per group and the respective GAMM smooths are visualized in the following plot. See `2_idDiffs.R` for plot code.
+
+<br>
+
+<p align="center">
+![](`r paste(outputFolder, "figures", "socioAffect.png", sep = "/")`)
+</p>
+
+
+<br>
+
+**Result**:
+All groups were **highly motivated**, which is why there was no normal distribution and the model could not fit the data perfectly. The model (albeit with non-normal residuals) could not find any significant difference between groups in terms of their initial socio-affect or the development thereof:
+
+<br>
+
+```{r}
+# For respective model, run this section:
+load(paste(outputFolder, "tables_and_summaries", "summ_socioAffect_OFgamm.rda", sep = "/")) # Model is run in idDiffs.R
+summ_m1a
+
+```
+
+
+```{r, echo = T, warning = F, message=F}
+
+# Get mean socio-affect per subject
+thisDat = df %>%
+  group_by(Group, userCode) %>%
+  summarise(socioAffect = mean(socioAffect, na.rm = T))
+
+test = kruskal.test(socioAffect ~ Group, data = thisDat)
+
+```
+
+A Kruskal-Wallis Test did not show any difference in mean motivation between groups *&chi;<sup>2</sup>*(`r test$parameter[1]`) = `r round(test$statistic[1],2)`, *p* = `r round(test$p.value,2)`. 
+
+
+<br><br>
+
+
+### Summary of Exploratory Analysis
+
+* Groups were comparable in terms of all ID variables.
+* Group LANG slightly outperformed group PASV at baseline.
+* Baseline differences were predicted by education and multilingualism.
+* All groups were highly motivated and reported high wellbeing.
+
+<br><br>
+
+## Preprocessing Steps Performed
+
+```{r, eval = F}
+# See function "preproc" in funs.R and dataPrep.R
+```
+
+1. Verbal fluency scores normalized for each version (K,P,R,S) by subtracting mean per version from each score.
+2. Concatenation of Wellbeing and Training Motivation and removal of entries where both are 50, assuming that they might have been chosen out of "laziness".
+3. Concatenation of Operation Span & N-Back accuracy scores due to high correlation.
+4. Logarithmising all RTs.
+5. Z-normalization of all cognitive variables, so that ranges are comparable.
+6. For the overall models, RTs were multiplied by -1, so that the scaling is comparable between accuracy and RTs (higher = better).
+7. The very first time point was removed as familiarization trial (in which participants also received feedback from the investigators). 
+
+<br><br><br>
+
+## Overview of Variables After Preprocessing {.tabset}
+
+<br>
+
+### Data Description
+(dataframe `df`)
+
+* **userCode**: subject ID
+* **age**: Subject's age in years at study commencement.
+* **educ_y**: Number of years in education up to university. Advanced trainings included.
+* **Act_total**: Number of hobbies practiced on a regular basis as assessed via questionnaire.
+* **BLP**: Score for multilingualism.
+* **Time**: number of measurement per subject
+* **Group**: Experimental group. `PASV` = Passive control group (social exchange only); `ACTV`= Active control group (strategy games); `LANG`= Experimental group (Spanish training).
+* **isLANG**: Binary factor of whether or not participants were part of the language group or not (`1` = yes)
+* **isLANG0**: Ordered factor of whether or not participants were part of the language group or not (`1` = yes)
+* **isACTV**: Binary factor of whether or not participants were part of the gaming group or not (`1` = yes)
+* **isACTV0**: Ordered factor of whether or not participants were part of the gaming group or not (`1` = yes)
+* **isPASV**: Binary factor of whether or not participants were part of the movies group or not (`1` = yes)
+* **isPASV0**: Ordered factor of whether or not participants were part of the movies group or not (`1` = yes)
+* **class**: Groups of 5-12 individuals, split up by experimental condition (LANG: 4 groups, PASV: 2 groups, ACTV: 2 groups).
+* **gend**: Gender as binary (`1` = female)
+* **socioAffect**: Mean score `1-100` of overall wellbeing and training motivation during the week in question (`100` is highest).
+* **sRWT**: Number of words produced within 1 minute. Score for verbal fluency (z-score).
+* **sWM**: Sensitivity/accuracy score over both working memory tasks (Operation Span & 2-Back)(z-score).
+* **rtWM**: Logarithmised reaction time for 2-Back task (z-score).
+* **sDivAtt**: Sensitivity/accuracy score in Divided Attention task. Not included in analysis due to pronounced ceiling effects (z-score).
+* **rtDivAtt** Logarithmised reaction time for Divided Attention task (z-score).
+* **rtAlert**: Logarithmised mean reaction time for Alertness task (z-score).
+* **start.event**: Variable necessary for autocorrelation in GAMMs.
+* **initLevel_sWM**: Baseline Working Memory Accuracy from GAMs per subject
+* **initLevel_rtWM**: Baseline Working Memory RT from GAMs per subject
+* **initLevel_rtDivAtt**: Baseline Divided Attention RT from GAMs per subject
+* **initLevel_rtAlert**: Baseline Alertness RT from GAMs per subject
+* **initLevel_sRWT**: Baseline Verbal Fluency from GAMs per subject
+
+<br><br><br><br><br>
+
+
+### Data Excerpt
+
+```{r, echo = F}
+head(df)
+```
+
+### Descriptive Statistics
+
+```{r, echo = F}
+summary(df)
+```
+
+
+
+
+## RQ1 & RQ2: Group Differences in Cognitive Development
+
+**1. What is the impact of training type (LANG, ACTV or PASV) on dynamic processes of change in cognitive functioning?**
+**2. Is there a difference between the three training types (LANG, ACTV or PASV) in terms of the overall trend of change through time?**
+
+<br><br>
+
+
+### M2: Overall Training Effect per Group
+
+The GAMM model to test the group effect on overall cognitive performance was computed as follows:
+
+```{r, eval = F}
+
+m2_old = bam(score ~ 
+            isACTV0 +
+            isPASV0 +
+            s(Time) +
+            s(Time, by = isACTV0) +
+            s(Time, by = isPASV0) +
+            s(Time, userCode, bs = "fs", m = 1) + 
+            s(Time, Tasks, bs = "fs", m = 1),
+          data = df_overall, family = "scat", discrete = T, nthreads = 2)
+
+r1 = start_value_rho(m2_old)
+
+m2 = bam(score ~ 
+            isACTV0 +
+            isPASV0 +
+            s(Time) +
+            s(Time, by = isACTV0) +
+            s(Time, by = isPASV0) +
+            s(Time, userCode, bs = "fs", m = 1) + 
+            s(Time, Tasks, bs = "fs", m = 1),
+          data = df_overall, rho = r1,  AR.start = df_overall$start.event,
+          family = "scat", discrete = T, nthreads = 2)
+
+# The code is executed in `3_GAMMs.R`.
+```
+
+
+**Explanation**:
+
+* `df_overall`includes all tasks per time and subject in long format.
+* `isACTV0` and `isPASV0` are parametric terms that describe how the group's intercepts differs from that of the reference group (LANG).
+* `s(Time)` = The overall training effect independent of groups (i.e. the average practice effect).
+* `s(Time, by = isACTV0)` and `s(Time, by = isPASV0)` =  The difference smooths for the effect of time, i.e. how the training effect in ACTV and PASV was different from the overall training gain in LANG.
+* `s(Time, userCode, bs = "fs", m = 1)` = Factor smooth interaction (i.e. random effects) for the effect of time within a given subject at the reference level (LANG).
+* `s(Time, Tasks, bs = "fs", m = 1)` = Random smooths for task type (i.e. a separate smooth for each of the 5 tasks).
+* `rho` and `AR.start` remove autocorrelation based on the rho value of the first model.
+* `family = "scat"` applies the scaled-t model family, which yielded a more normal distribution of residuals.
+
+<br><br>
+
+
+### M2: Visualization of Overall Trajectories
+
+<br>
+
+<p align="center">
+![](`r paste(outputFolder, "figures", " GroupGAMM.png", sep = "/")`)
+</p>
+
+<br>
+
+See `3_GAMMs.R` for visualization code.
+
+<br><br>
+
+
+### M2: Output of Overall Model
+
+```{r, echo = F, comment = ""}
+load(paste(outputFolder, "tables_and_summaries", "summ_m2.rda", sep = "/"))
+summ_m2
+```
+
+There is no significant difference in the overall cognitive trajectories between LANG and PASV or between LANG and ACTV.
+
+<br><br>
+
+### M2: Model Criticism for Overall Model
+
+```{r, echo = T, eval = T, fig.height=4, fig.width=10, out.width="80%"}
+load(paste(outputFolder, "tables_and_summaries", "m2.rda", sep = "/"))
+
+par(mfrow = c(1,2))
+  acf_resid(m2, main = "ACT Plot of Model Residuals")
+  qqp(resid(m2), id = F, main = "Quantile-Comparison Plot")
+
+```
+
+<br>
+
+There is no noticeable autocorrelation and the model residuals, and the residuals are normally distributed. 
+
+<br><br>
+
+
+### M2: Predicting Group Differences at T=0
+
+```{r}
+langPred = get_predictions(m2, cond = list(isACTV0 = 0, 
+                                       isPASV0 = 0,
+                                       Time = 0),
+                           rm.ranef = T, print.summary = F)
+
+actvPred = get_predictions(m2, cond = list(isACTV0 = 1, 
+                                       isPASV0 = 0,
+                                       Time = 0),
+                           rm.ranef = T, print.summary = F)
+
+pasvPred = get_predictions(m2, cond = list(isACTV0 = 0, 
+                                       isPASV0 = 1,
+                                       Time = 0),
+                           rm.ranef = T, print.summary = F)
+
+```
+
+At time point zero, overall cognitive performance at the reference level was `r round(langPred$fit,2)`, for group ACTV it was `r round(actvPred$fit,2)` and for PASV it was `r round(pasvPred$fit,2)`.
+
+### M3: Training Effect per Cognitive Task
+
+The GAMM model to test the group effect on each cognitive measure was computed as follows:
+
+```{r, eval = F}
+
+# Model that is not corrected for autocorrelation
+m3_old = bam(score ~ 
+               
+               # smooths for reference level LANG
+               s(Time, by = Tasks) + 
+               Tasks + 
+               
+               # smooths for ACTV as ordered factors
+               s(Time, by = isACTVissWM0) +
+               isACTVissWM0 + 
+               s(Time, by = isACTVisrtWM0) +
+               isACTVisrtWM0 + 
+               s(Time, by = isACTVisrtDivAtt0) +
+               isACTVisrtDivAtt0 + 
+               s(Time, by = isACTVisrtAlert0) +
+               isACTVisrtAlert0 + 
+               s(Time, by = isACTVissRWT0) +
+               isACTVissRWT0 + 
+               
+               # smooths for PASV as ordered factors
+               s(Time, by = isPASVissWM0) +
+               isPASVissWM0 + 
+               s(Time, by = isPASVisrtWM0) +
+               isPASVisrtWM0 + 
+               s(Time, by = isPASVisrtDivAtt0) +
+               isPASVisrtDivAtt0 + 
+               s(Time, by = isPASVisrtAlert0) +
+               isPASVisrtAlert0 + 
+               s(Time, by = isPASVissRWT0) +
+               isPASVissRWT0 +
+               
+               # random effects for subject and task in LANG
+               s(Time, userCode, by = Tasks, bs = "fs", m = 1),
+             data = df_overall, family = "scat", discrete = T, nthreads = 2)
+
+r1 = start_value_rho(m3_old)
+
+# Model corrected for autocorrelation
+m3 = bam(score ~ 
+           # smooths for reference level LANG
+           s(Time, by = Tasks) + 
+           Tasks + 
+           
+           # smooths for ACTV as ordered factors
+           s(Time, by = isACTVissWM0) +
+           isACTVissWM0 + 
+           s(Time, by = isACTVisrtWM0) +
+           isACTVisrtWM0 + 
+           s(Time, by = isACTVisrtDivAtt0) +
+           isACTVisrtDivAtt0 + 
+           s(Time, by = isACTVisrtAlert0) +
+           isACTVisrtAlert0 + 
+           s(Time, by = isACTVissRWT0) +
+           isACTVissRWT0 + 
+           
+           # smooths for PASV as ordered factors
+           s(Time, by = isPASVissWM0) +
+           isPASVissWM0 + 
+           s(Time, by = isPASVisrtWM0) +
+           isPASVisrtWM0 + 
+           s(Time, by = isPASVisrtDivAtt0) +
+           isPASVisrtDivAtt0 + 
+           s(Time, by = isPASVisrtAlert0) +
+           isPASVisrtAlert0 + 
+           s(Time, by = isPASVissRWT0) +
+           isPASVissRWT0 +
+           
+           # random effects for subject and task in LANG
+           s(Time, userCode, by = Tasks, bs = "fs", m = 1),
+         data = df_overall, family = "scat", rho = r1,  AR.start = df_overall$start.event,
+         discrete = T, nthreads = 2)
+
+
+# The code is executed in GAMM.R.
+```
+
+**Explanation**:
+
+* The term `Tasks` models a separate intercept for each of the cognitive measures.
+* `s(Time, by = Tasks)` models a smooth for the overall training/practice effect per cognitive measure, independent of the training type.
+* `s(Time, by = isACTVissWM0)` and similar terms model a difference smooth per group (using ordered factors) and task type, while `isACTVissWM0` models the respective intercept difference per group and task. For example, this smooth models how the trajectory of Working Memory Accuracy over time differed between group ACTV and group LANG.
+* All other term explanations are the same as for the overall model.
+
+
+<br><br>
+
+
+
+### M3: Output from Model per Cognitive Task
+
+```{r, echo = F, comment = ""}
+load(paste(outputFolder, "tables_and_summaries", "summ_m3.rda", sep = "/"))
+load(paste(outputFolder, "tables_and_summaries", "m3.rda", sep = "/"))
+summ_m3
+```
+
+```{r, echo = T, eval = F}
+# Code for summary above was executed in 3_GAMMs.R
+```
+
+### M3: Visualization per Task
+
+<br> 
+
+<p align="center">
+![](`r paste(outputFolder, "figures", "  littleGroupGAMMs.png", sep = "/")`)
+</p>
+
+<br>
+
+The visualization code can be found in `3_GAMMs.R`
+
+<br><br>
+
+
+### M3: Difference Plots per Task
+
+
+(Note: Values are standardized, such that higher scores represent better performance, also for RTs.)
+ 
+```{r, echo = T, warning = F, message = F, fig.width = 14, fig.height=5}
+par(mfrow = c(2,5))
+    plot_diff(m3, 
+              view = "Time", 
+              comp = list(isPASVissWM0 = c("0", "1")),
+              cond = list(Tasks = "sWM"),
+              ylab = "LANG minus PASV",
+              main = "Working Memory Acc.",
+              rm.ranef = T,
+              print.summary = F)
+  
+      plot_diff(m3, 
+              view = "Time", 
+              comp = list(isPASVisrtWM0 = c("0", "1")),
+              cond = list(Tasks = "rtWM"),
+              ylab = "",
+              main = "Working Memory RT",
+              rm.ranef = T,
+              print.summary = F)
+  
+      plot_diff(m3, 
+              view = "Time", 
+              comp = list(isPASVisrtDivAtt0 = c("0", "1")),
+              cond = list(Tasks = "rtDivAtt"),
+              ylab = "",
+              main = "Divided Attention RT",
+              rm.ranef = T,
+              print.summary = F)
+      
+      plot_diff(m3, 
+              view = "Time", 
+              comp = list(isPASVisrtAlert0 = c("0", "1")),
+              cond = list(Tasks = "rtAlert"),
+              ylab = "",
+              main = "Alertness RT",
+              rm.ranef = T,
+              print.summary = F)
+      
+      plot_diff(m3, 
+              view = "Time", 
+              comp = list(isPASVissRWT0 = c("0", "1")),
+              cond = list(Tasks = "sRWT"),
+              ylab = "",
+              main = "Verbal Fluency",
+              rm.ranef = T,
+              print.summary = F)
+      
+      plot_diff(m3, 
+              view = "Time", 
+              comp = list(isACTVissWM0 = c("0", "1")),
+              cond = list(Tasks = "sWM"),
+              ylab = "LANG minus ACTV",
+              main = "",
+              rm.ranef = T,
+              print.summary = F)
+      
+      plot_diff(m3, 
+              view = "Time", 
+              comp = list(isACTVisrtWM0 = c("0", "1")),
+              cond = list(Tasks = "rtWM"),
+              ylab = "",
+              main = "",
+              rm.ranef = T,
+              print.summary = F)
+      
+      plot_diff(m3, 
+              view = "Time", 
+              comp = list(isACTVisrtDivAtt0 = c("0", "1")),
+              cond = list(Tasks = "rtDivAtt"),
+              ylab = "",
+              main = "",
+              rm.ranef = T,
+              print.summary = F)
+      
+      plot_diff(m3, 
+              view = "Time", 
+              comp = list(isACTVisrtAlert0 = c("0", "1")),
+              cond = list(Tasks = "rtAlert"),
+              ylab = "",
+              main = "",
+              rm.ranef = T,
+              print.summary = F)
+      
+    plot_diff(m3, 
+              view = "Time", 
+              comp = list(isACTVissRWT0 = c("0", "1")),
+              cond = list(Tasks = "sRWT"),
+              ylab = "",
+              main = "",
+              rm.ranef = T,
+              print.summary = F)
+
+```
+
+<br>
+
+**Result**:
+
+* Working Memory Accuracy was higher in group LANG than in group PASV throughout the training (= selection bias), but the difference kept decreasing.
+* Divided Attention RT was significantly better (i.e. lower) in group LANG compared to PASV after week 7, but here, too, there was a selection bias as shown in differences at T=0.
+* Group LANG also outperformed group ACTV in terms of Working Memory RT and significantly so after week 3, but again, values at T=0 were already higher at the beginning, pointing to a selection bias.
+
+<br><br>
+
+
+### M3: Model Criticism
+
+```{r, echo = T, eval = T, fig.height=4, fig.width=10, out.width="80%"}
+par(mfrow = c(1,2))
+  acf_resid(m3, main = "ACT Plot of Model Residuals")
+  qqp(resid(m3), id = F, main = "Quantile-Comparison Plot")
+
+```
+
+<br>
+
+No autocorrelation. Residuals normally distributed.
+
+<br><br><br>
+
+
+### M2 & M3 Results Summarized
+
+* **Overall** (M3)
+  * Significant practice effect.
+  * Group **LANG** had higher intercept than PASV.
+  * No overall group difference in smooth over time (i.e. no difference in cognitive development between ACTV and LANG or between PASV and LANG).
+* **Working Memory Accuracy** (M2)
+  * Significant overall practice effect.
+  * Group **PASV** had significantly lower intercept than LANG.
+  * No significant difference in smooth over time between LANG and PASV or between LANG and ACTV.
+  * Difference plot shows significantly higher accuracy in group LANG compared to PASV throughout the training when accounting for uncertainty in intercept.
+* **Working Memory RT** (M2)
+  * Significant overall practice effect.
+  * Group LANG had a significantly higher intercept than group ACTV.
+  * No group difference in smooth over time.
+* **Divided Attention RT** (M2)
+  * Significant overall practice effect.
+  * Group LANG had significantly higher intercept than group PASV.
+  * No group difference in smooth over time.
+  * Difference plot shows significantly better performance in group LANG compared to PASV after week 7 when accounting for uncertainty in intercept.
+* **Alertness Reaction Time** (M2)
+  * No significant practice effect.
+  * No group difference in intercept.
+  * No group difference in smooth over time.
+* **Verbal Fluency** (M2)
+  * Significant practice effect.
+  * No group difference in intercept.
+  * No group difference in smooth over time.
+  
+<br><br><br><br><br><br><br><br><br>  
+
+
+## RQ3 & RQ4: Individual Differences in Cognitive Benefit
+
+Ideally, groups should have been identical in terms of ID variables, cognitive baseline and socio-affect in order to be able to objectively quantify the transfer effect of LANG and ACTV training modalities. While they were comparable in ID variables (i.e. no selection bias) and socio-affect, there were slight differences in cognitive baseline (LANG starting with higher baseline). Thus, in order to assess the pure effect of the LANG / ACTV trainings, a model was computed in which baseline level, time and their interaction were inserted as predictors.
+
+
+<br><br>
+
+### M4_te: Overall Interaction Time x Baseline Level Using te()
+
+The following was the model code for M4_te:
+
+```{r, eval = F, include = T}
+m4_te_old = bam(score ~ 
+                  te(Time, initLevel) +
+                  te(Time, initLevel, by = isACTV) +
+                  te(Time, initLevel, by = isPASV) +
+                s(Time, userCode, bs = "fs", m = 1),
+              data = df_overall, family = "scat", discrete = T, nthreads = 7)
+
+r1 = start_value_rho(m4_te_old)
+
+m4_te = bam(score ~ 
+                  te(Time, initLevel) +
+                  te(Time, initLevel, by = isACTV) +
+                  te(Time, initLevel, by = isPASV) +
+              s(Time, userCode, bs = "fs", m = 1),
+          data = df_overall, rho = r1,  AR.start = df_overall$start.event,
+          family = "scat", discrete = T, nthreads = 7)
+
+# Model run in 3_GAMMs.R
+
+```
+
+<br>
+
+**Explanation**:
+
+`te()` produces a full tensor product interaction, i.e. an interaction that includes the main effects of the respective terms.
+
+<br><br>
+
+### M4_te: Model Output
+
+```{r, echo = F, comment = ""}
+load(paste(outputFolder, "tables_and_summaries", "summ_m4_te.rda", sep = "/"))
+load(paste(outputFolder, "tables_and_summaries", "m4_te.rda", sep = "/"))
+summ_m4_te
+```
+
+<br><br>
+
+```{r, echo = T, fig.width=10, fig.height=4}
+
+par(mfrow = c(1,2))
+  
+  # te(Time,initLevel):isPASV
+  pvisgam(m4_te, select = 3,
+       main = "Smooth over Baseline Level \n in PASV",
+       view = c("Time", "initLevel"),
+       zlim = c(-1.15, 1.15),
+       print.summary = F)
+
+  
+  # te(Time,initLevel):isACTV
+  pvisgam(m4_te, select = 2,
+       main = "Smooth over Baseline Level \n in ACTV",
+       view = c("Time", "initLevel"),
+       zlim = c(-2.23, 2.23),
+       print.summary = F)
+
+```
+
+The effect of baseline level and its interaction with time was significantly different in groups ACTV and PASV from LANG such that individuals with low cognitive baseline performance improved more in group LANG than in both ACTV and PASV. However, it is possible that the model was largely influenced by outliers on the lower spectrum of cognitive baselines, especially the two outliers where baseline was < 3.5SD.
+
+See the distribution of baseline levels:
+
+```{r, out.width="70%", width = 4, height = 3, warning = F, message = F} 
+
+dat = df_overall %>%
+  group_by(userCode, Tasks) %>%
+  summarise(initLevel = mean(initLevel))
+hist(dat$initLevel, 50, xlim = c(-4,4),xlab = "Baseline Level", main = "Histogram of Baseline Levels")
+
+```
+
+<br><br>
+
+### M4_threeOut (without outliers < -3.5SD)
+
+Model M4 was run again without outliers < -3.5SD.
+
+```{r, echo = F, comment = ""}
+load(paste(outputFolder, "tables_and_summaries", "summ_m4_threeOut.rda", sep = "/"))
+load(paste(outputFolder, "tables_and_summaries", "m4_threeOut.rda", sep = "/"))
+summ_m4_threeOut
+```
+
+```{r, echo = T, fig.width=10, fig.height=4}
+
+par(mfrow = c(1,2))
+  
+  # te(Time,initLevel):isPASV
+  pvisgam(m4_threeOut, select = 3,
+       main = "Smooth over Baseline Level \n in PASV",
+       view = c("Time", "initLevel"),
+       zlim = c(-0.95, 0.95),
+       print.summary = F)
+
+  
+  # te(Time,initLevel):isACTV
+  pvisgam(m4_threeOut, select = 2,
+       main = "Smooth over Baseline Level \n in ACTV",
+       view = c("Time", "initLevel"),
+       zlim = c(-1.00, 1.00),
+       print.summary = F)
+  
+
+```
+
+
+<br><br>
+
+### Model Comparison M2 (Time only) vs. M4 (with Baseline Cognition)
+
+M2 and M4 were modeled again assuming all effects to be random effects by using `select = T` (see `3_GAMMs.R`).
+
+The models used binary curves for group differences and excluded outliers < -3.5SD.
+
+Model comparison (using `compareML()`) results in the following values:
+
+```{r}
+
+load(file = paste(outputFolder, "tables_and_summaries", "m2_threeout_alt.rda", sep = "/"))
+load(file = paste(outputFolder, "tables_and_summaries", "m4_threeout_alt.rda", sep = "/"))
+
+comparison = compareML(m2.alt, m4.alt)
+
+```
+
+M4 had a lower AIC and fREML score, and is therefore preferred.
+
+<br><br><br>
+
+
+### M5_threeOut: Adding Individual Tasks to M4_threeOut
+
+To investigate the effect of baseline level per cognitive task, the following was the model code for M5_threeOut. The outliers from model M4_threeOut were removed here, too.
+
+```{r, eval = F, include = T}
+m5_threeOut_old = bam(score ~ 
+                      te(Time, initLevel, by = Tasks) +
+                      te(Time, initLevel, by = isACTVissWM) +
+                      te(Time, initLevel, by = isACTVisrtWM) +
+                      te(Time, initLevel, by = isACTVisrtDivAtt) +
+                      te(Time, initLevel, by = isACTVisrtAlert) +
+                      te(Time, initLevel, by = isACTVissRWT) +
+                      
+                      te(Time, initLevel, by = isPASVissWM) +
+                      te(Time, initLevel, by = isPASVisrtWM) +
+                      te(Time, initLevel, by = isPASVisrtDivAtt) +
+                      te(Time, initLevel, by = isPASVisrtAlert) +
+                      te(Time, initLevel, by = isPASVissRWT) +
+                      
+                      s(Time, userCode, bs = "fs", m = 1),
+                    data = df_overall3, family = "scat", discrete = T, nthreads = 7)
+
+r1 = start_value_rho(m5_threeOut_old)
+
+m5_threeOut = bam(score ~ 
+                  te(Time, initLevel, by = Tasks) +
+                  te(Time, initLevel, by = isACTVissWM) +
+                  te(Time, initLevel, by = isACTVisrtWM) +
+                  te(Time, initLevel, by = isACTVisrtDivAtt) +
+                  te(Time, initLevel, by = isACTVisrtAlert) +
+                  te(Time, initLevel, by = isACTVissRWT) +
+                  
+                  te(Time, initLevel, by = isPASVissWM) +
+                  te(Time, initLevel, by = isPASVisrtWM) +
+                  te(Time, initLevel, by = isPASVisrtDivAtt) +
+                  te(Time, initLevel, by = isPASVisrtAlert) +
+                  te(Time, initLevel, by = isPASVissRWT) +
+                  s(Time, userCode, bs = "fs", m = 1),
+                data = df_overall3, rho = r1,  AR.start = df_overall3$start.event,
+                family = "scat", discrete = T, nthreads = 7)
+```
+
+
+<br><br><br>
+
+### M5_threeOut: Model Output
+
+```{r, echo = F, comment = ""}
+load(paste(outputFolder, "tables_and_summaries", "summ_m5_threeOut.rda", sep = "/"))
+load(paste(outputFolder, "tables_and_summaries", "m5_threeOut.rda", sep = "/"))
+summ_m5_threeOut
+```
+
+```{r, echo = T, fig.width=13, fig.height=5}
+par(mfrow = c(2,5))
+
+  # te(Time,initLevel):isPASVissWM 
+  pvisgam(m5_threeOut, view = c("Time", "initLevel"),
+          select = 11,
+          main = "Working Memory Acc. \n in PASV",
+          ylab = "Baseline Level",
+          zlim = c(-1.7, 1.7),
+          print.summary = F)
+  
+  
+  # te(Time,initLevel):isPASVisrtWM 
+  pvisgam(m5_threeOut, view = c("Time", "initLevel"),
+          select = 12,
+          main = "Working Memory RT \n in PASV",
+          ylab = "Baseline Level",
+          zlim = c(-7.62, 7.62),
+          print.summary = F)
+  
+  # te(Time,initLevel):isPASVisrtDivAtt
+  pvisgam(m5_threeOut, view = c("Time", "initLevel"),
+          select = 13,
+          main = "Divided Attention RT \n in PASV",
+          ylab = "Baseline Level",
+          zlim = c(-2.54, 2.54),
+          print.summary = F)
+  
+  # te(Time,initLevel):isPASVisrtAlert 
+  pvisgam(m5_threeOut, view = c("Time", "initLevel"),
+          select = 14,
+          main = "Alertness RT \n in PASV",
+          ylab = "Baseline Level",
+          zlim = c(-2.18, 2.18),
+          print.summary = F)
+  
+    # te(Time,initLevel):isPASVissRWT
+  pvisgam(m5_threeOut, view = c("Time", "initLevel"),
+          select = 15,
+          main = "Verbal Fluency \n in PASV",
+          ylab = "Baseline Level",
+          zlim = c(-1.98, 1.98),
+          print.summary = F)
+
+  # te(Time,initLevel):isACTVissWM 
+  pvisgam(m5_threeOut, view = c("Time", "initLevel"),
+          select = 6,
+          main = "Working Memory Acc. \n in ACTV",
+          ylab = "Baseline Level",
+          zlim = c(-0.70, 0.70),
+          print.summary = F)
+  
+  # te(Time,initLevel):isACTVisrtWM 
+  pvisgam(m5_threeOut, view = c("Time", "initLevel"),
+          select = 7,
+          main = "Working Memory RT \n in ACTV",
+          ylab = "Baseline Level",
+          zlim = c(-2.6, 2.6),
+          print.summary = F)
+  
+  # te(Time,initLevel):isACTVisrtDivAtt
+  pvisgam(m5_threeOut, view = c("Time", "initLevel"),
+          select = 8,
+          main = "Divided Attention RT \n in ACTV",
+          ylab = "Baseline Level",
+          zlim = c(-2.54, 2.54),
+          print.summary = F)
+  
+  # te(Time,initLevel):isACTVisrtAlert 
+  pvisgam(m5_threeOut, view = c("Time", "initLevel"),
+          select = 9,
+          main = "Alertness RT \n in ACTV",
+          ylab = "Baseline Level",
+          zlim = c(-2.00, 2.00),
+          print.summary = F)
+  
+  # te(Time,initLevel):isACTVissRWT 
+  pvisgam(m5_threeOut, view = c("Time", "initLevel"),
+          select = 10,
+          main = "Verbal Fluency \n in ACTV",
+          ylab = "Baseline Level",
+          zlim = c(-2.9, 2.9),
+          print.summary = F)
+  
+  
+
+```
+
+<br>
+
+<br><br><br>
+
